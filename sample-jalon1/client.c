@@ -9,6 +9,13 @@
 
 #include "common.h"
 
+void die(ssize_t ret_value, const char * msg){
+	if (ret_value < 0){
+		perror(msg);
+		exit(EXIT_FAILURE);
+	}
+}
+
 void echo_client(int sockfd) {
 	char buff[MSG_LEN];
 	int n;
