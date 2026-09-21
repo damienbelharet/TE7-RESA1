@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200112L // GEMINI
+
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -30,10 +32,10 @@ void echo_server(int sockfd) {
 int handle_bind() {
 	struct addrinfo hints, *result, *rp;
 	int sfd;
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_family = AF_UNSPEC;
+	memset(&hints, 0, sizeof(struct addrinfo)); // hints c'est une structure où on va mettre ce qu'on cherche 
+	hints.ai_family = AF_UNSPEC; //Ipv4 et IPv6
 	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE;
+	hints.ai_flags = AI_PASSIVE; // On écoute toutes les inferfaces réseaux disponibles
 	if (getaddrinfo(NULL, SERV_PORT, &hints, &result) != 0) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);
@@ -62,12 +64,12 @@ int main() {
 	int sfd, connfd;
 	socklen_t len;
 	sfd = handle_bind();
-	if ((listen(sfd, SOMAXCONN)) != 0) {
+	if ((listen(sfd, SOMAXCONN)) != 0) {  //SOMAXCONN = la plus grande file d'attente pour les clients
 		perror("listen()\n");
 		exit(EXIT_FAILURE);
 	}
-	len = sizeof(cli);
-	if ((connfd = accept(sfd, (struct sockaddr*) &cli, &len)) < 0) {
+	len = sizeof(cli); // on prépare la taille max 
+	if ((connfd = accept(sfd, (struct sockaddr*) &cli, &len)) < 0) { // &len = 16 pour ipv4 et 28 pour ipv6
 		perror("accept()\n");
 		exit(EXIT_FAILURE);
 	}
