@@ -1,5 +1,9 @@
 #define _POSIX_C_SOURCE 200112L // GEMINI
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 8c671a6a338e576eee592fd14c049ccbf683bff6
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -135,7 +139,11 @@ void echo_client(int sockfd) {
 	}
 }
 
+<<<<<<< HEAD
 int handle_connect(const char * server_name, const char * server_port) {
+=======
+int handle_connect(const char *server_name, const char *server_port) {
+>>>>>>> 8c671a6a338e576eee592fd14c049ccbf683bff6
 	struct addrinfo hints, *result, *rp;
 	int sfd;
 	memset(&hints, 0, sizeof(struct addrinfo));
@@ -164,11 +172,19 @@ int handle_connect(const char * server_name, const char * server_port) {
 }
 
 int main(int argc, char * argv[]) {
+<<<<<<< HEAD
 	if (argc != 3)
 	{
 		fprintf(stderr, "Usage : %s <server_name> <server_port>\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
+=======
+	if (argc != 3){
+		fprintf(stderr,"Usage : %s <server_name> <server_port>\n", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+>>>>>>> 8c671a6a338e576eee592fd14c049ccbf683bff6
 	int sfd;
 	sfd = handle_connect(argv[1], argv[2]);
 	echo_client(sfd);
