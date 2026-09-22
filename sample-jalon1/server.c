@@ -30,7 +30,7 @@ int write_on_socket(int sockfd, void * buf, int to_write )
         printf("Disconnected\n");
         exit(EXIT_FAILURE);
         }
-    die(ret_value, "reading msg header");
+    die(ret_value, "write_on_socket");
     written_bytes += ret_value;
 
     }
@@ -83,6 +83,7 @@ void echo_server(int sockfd) {
 		{
 			if (i == 0 && (fds[0].revents & POLLIN))
 			{
+				fds[0].revents = 0;
 				struct sockaddr cli;
 				socklen_t len = sizeof(cli);
 				int client_fd = accept(sockfd, (struct sockaddr*)&cli, &len);
@@ -109,20 +110,11 @@ void echo_server(int sockfd) {
 
 		else if (i > 0 && (fds[i].revents & POLLIN))
 		{
+			fds[i].revents = 0;
 			memset(buff, 0, MSG_LEN);
 			int incoming_size = 0;
-
-			buff[incoming_size] = '\0';
             
-            // --- NOUVEAU BLOC REQ 1.7 ---
-            if (strncmp(buff, "/quit\n", 6) == 0) {
-                printf("Client %d a demandé la déconnexion (/quit).\n", fds[i].fd);
-                close(fds[i].fd);
-                fds[i].fd = -1; 
-                continue; 
-            }
-
-			if (read_on_socket(fds[i].fd, &incoming_size, sizeof(int)) < 0) {
+			if (read_on_socket(fds[i].fd, &incoming_size, sizeof(int)) <= 0) {
 				fprintf(stderr, "Client disconnected fd = %d\n", fds[i].fd);
 				close(fds[i].fd);
 				fds[i].fd = -1;
@@ -131,13 +123,21 @@ void echo_server(int sockfd) {
 
 			if (incoming_size > MSG_LEN - 1) incoming_size = MSG_LEN - 1;
 
-			if (read_on_socket(fds[i].fd, buff, incoming_size) < 0) {
+			if (read_on_socket(fds[i].fd, buff, incoming_size) <= 0) {
 				fprintf(stderr, "Client disconnected fd = %d\n", fds[i].fd);
 				close(fds[i].fd);
 				fds[i].fd = -1;
 				continue;
 			}
 			buff[incoming_size] = '\0';
+
+			// 1.7
+			if (strncmp(buff, "/quit\n", 6) == 0) {
+				printf("Client %d a demandé la déconnexion (/quit).\n", fds[i].fd);
+				close(fds[i].fd);
+				fds[i].fd = -1; 
+				continue; 
+			}
 			printf("Received: %s", buff);
 
 			write_on_socket(fds[i].fd, &incoming_size, sizeof(int));
@@ -166,6 +166,10 @@ int handle_bind(const char * server_port) {
 		if (sfd == -1) {
 			continue;
 		}
+
+		int opt = 1;
+        die(setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), "setsockopt");
+
 		if (bind(sfd, rp->ai_addr, rp->ai_addrlen) == 0) {
 			break;
 		}

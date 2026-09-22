@@ -117,13 +117,13 @@ void echo_client(int sockfd) {
 			memset(buff, 0, MSG_LEN);
 			// Receiving message
 			int incoming_size = 0;
-			if (read_on_socket(sockfd, &incoming_size, sizeof(int)) < 0)
+			if (read_on_socket(sockfd, &incoming_size, sizeof(int)) <= 0)
 			{
 				fds[1].revents = 0;
 				break;
 			}
 			if (incoming_size > MSG_LEN - 1) incoming_size = MSG_LEN - 1;
-			if (read_on_socket(sockfd, buff, incoming_size) < 0)
+			if (read_on_socket(sockfd, buff, incoming_size) <= 0)
 			{
 				fds[1].revents = 0;
 				break;
