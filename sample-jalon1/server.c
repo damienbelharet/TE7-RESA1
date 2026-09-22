@@ -13,6 +13,47 @@
 #include "common.h"
 #define MAX_CLIENTS 10
 
+struct client_node {
+    int fd;
+    char ip[INET_ADDRSTRLEN];
+    int port;
+    struct client_node *next;
+};
+
+struct client_node *client_list = NULL;
+
+
+void add_client(int fd, struct sockaddr_in *addr) {
+    struct client_node *new_c = malloc(sizeof(struct client_node));
+    if (!new_c) return;
+
+    new_c->fd = fd;
+    inet_ntop(AF_INET, &(addr->sin_addr), new_c->ip, INET_ADDRSTRLEN);
+    new_c->port = ntohs(addr->sin_port);
+
+    new_c->next = client_list;
+    client_list = new_c;
+}
+
+void remove_client(int fd) {
+    struct client_node *curr = client_list;
+    struct client_node *prev = NULL;
+
+    while (curr != NULL) {
+        if (curr->fd == fd) {
+            if (prev == NULL) {
+                client_list = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+            free(curr); 
+            return;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
 void die(ssize_t ret_value, const char * msg){
 	if (ret_value < 0){
 		perror(msg);
@@ -84,7 +125,7 @@ void echo_server(int sockfd) {
 			if (i == 0 && (fds[0].revents & POLLIN))
 			{
 				fds[0].revents = 0;
-				struct sockaddr cli;
+				struct sockaddr_in cli;
 				socklen_t len = sizeof(cli);
 				int client_fd = accept(sockfd, (struct sockaddr*)&cli, &len);
 
@@ -96,6 +137,7 @@ void echo_server(int sockfd) {
 
 				printf("New client %d\n", client_fd);
 
+				int slot_found = 0;
 				for (size_t j = 1; j < MAX_CLIENTS; j++) //on cherche une case libre
 				{
 					if (fds[j].fd == -1)
@@ -103,8 +145,14 @@ void echo_server(int sockfd) {
 						fds[j].fd = client_fd;
 						fds[j].events = POLLIN;
 						fds[j].revents = 0;
+						add_client(client_fd, &cli);
+						slot_found = 1;
 						break;
 					}
+				}
+				if (!slot_found){
+					fprintf(stderr,"Serveur full, refuse connexion\n");
+					close(client_fd);
 				}
 			}
 
@@ -116,6 +164,7 @@ void echo_server(int sockfd) {
             
 			if (read_on_socket(fds[i].fd, &incoming_size, sizeof(int)) <= 0) {
 				fprintf(stderr, "Client disconnected fd = %d\n", fds[i].fd);
+				remove_client(fds[i].fd);
 				close(fds[i].fd);
 				fds[i].fd = -1;
 				continue;
@@ -125,6 +174,7 @@ void echo_server(int sockfd) {
 
 			if (read_on_socket(fds[i].fd, buff, incoming_size) <= 0) {
 				fprintf(stderr, "Client disconnected fd = %d\n", fds[i].fd);
+				remove_client(fds[i].fd);
 				close(fds[i].fd);
 				fds[i].fd = -1;
 				continue;
@@ -134,6 +184,7 @@ void echo_server(int sockfd) {
 			// 1.7
 			if (strncmp(buff, "/quit\n", 6) == 0) {
 				printf("Client %d a demandé la déconnexion (/quit).\n", fds[i].fd);
+				remove_client(fds[i].fd);
 				close(fds[i].fd);
 				fds[i].fd = -1; 
 				continue; 
