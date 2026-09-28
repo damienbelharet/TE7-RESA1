@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200112L
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -7,8 +8,23 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+
 #include "common.h"
 #include "msg_struct.h"
+
+int write_on_socket(int fd, void *buf, int to_write) {
+    int written_bytes = 0;
+    int ret_value = 0;
+
+    while (written_bytes != to_write) {
+        ret_value = write(fd, (char *)buf + written_bytes, to_write - written_bytes);
+        if (ret_value <= 0) {
+            return -1;
+        }
+        written_bytes += ret_value;
+    }
+    return written_bytes;
+}
 
 void echo_client(int sockfd) {
 	struct message msgstruct;
@@ -28,11 +44,11 @@ void echo_client(int sockfd) {
 		msgstruct.type = ECHO_SEND;
 		strncpy(msgstruct.infos, "\0", 1);
 		// Sending structure
-		if (send(sockfd, &msgstruct, sizeof(msgstruct), 0) <= 0) {
+		if (write_on_socket(sockfd, &msgstruct, sizeof(msgstruct)) <= 0) {
 			break;
 		}
 		// Sending message (ECHO)
-		if (send(sockfd, buff, msgstruct.pld_len, 0) <= 0) {
+		if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
 			break;
 		}
 		printf("Message sent!\n");
