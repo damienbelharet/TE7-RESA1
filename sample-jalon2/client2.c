@@ -72,7 +72,8 @@ void echo_client(int sockfd) {
 
         memset(&msgstruct, 0, sizeof(struct message));
         memset(buff, 0, MSG_LEN);
-        char *commande, pseudo;
+        char commande[MSG_LEN];
+        char *pseudo[NICK_LEN];
         int ret = 0;
         // Getting message from client
 
@@ -108,12 +109,11 @@ void echo_client(int sockfd) {
             }
 
             // Sending message (ECHO)
-            if (msgstruct.pld_len == 0){
-                break;
-            }
-            if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
-                close(sockfd);
-                break;
+            if (msgstruct.pld_len > 0){
+                if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
+                    close(sockfd);
+                    break;
+                }
             }
             printf("Message sent!\n");
             printf("Message: ");
@@ -123,9 +123,13 @@ void echo_client(int sockfd) {
                 close(sockfd);
                 break;
             }
-            ret = sscanf(buff, "%s %s", &commande, &pseudo);
+            ret = scanf(buff, "%s %s", &commande, &pseudo);
+            if (ret < 0){
+                close(sockfd);
+                break;
+            }
             if(strcmp(commande, "/nick") == 0){
-                if (pseudo < NICK_LEN){
+                if (strlen(pseudo) < NICK_LEN){
                 msgstruct.nick_sender = pseudo;
 
                 }

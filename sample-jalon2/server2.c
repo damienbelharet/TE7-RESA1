@@ -155,9 +155,11 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         return;
     }
     // Receiving message
-    if (read_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
-        disconnecte_client(fds, i);
-        return;
+    if (msgstruct.pld_len > 0){
+        if (read_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
     }
     char * mot_recu = buff;
     mot_recu[msgstruct.pld_len] = '\0';
