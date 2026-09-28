@@ -18,6 +18,7 @@ struct client_node {
     int fd;
     char ip[INET_ADDRSTRLEN]; //tableau de carac pour @ip sous forme de texte elle vaut 16
     int port;
+    char nick[NICK_LEN];
     struct client_node *next;
 };
 struct client_node *client_list = NULL;
@@ -66,6 +67,7 @@ void add_client(int fd, const char *ip, int port){
     noeud->fd = fd;
     noeud->port = port;
     strncpy(noeud->ip, ip, INET_ADDRSTRLEN); // c'est strcpy mais on limite la taille pour pas que ça déborde dans la RAM.
+    memset(noeud->nick, 0, NICK_LEN);
     noeud->next = client_list;
     client_list = noeud;
 }
@@ -170,20 +172,55 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
 
     printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
     printf("Received: %s\n", buff);
-    // Sending structure (ECHO)
-    if (write_on_socket(fds[i].fd, &msgstruct, sizeof(msgstruct)) <= 0) {
-        disconnecte_client(fds, i);
-        return;
-    }
-    // Sending message (ECHO)
-    if(msgstruct.pld_len > 0){
-        if (write_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
-        disconnecte_client(fds, i);
-        return;
-        }
-    }
-    printf("Message sent!\n");
 
+    if (msgstruct.type == NICKNAME_NEW) {
+        // 1. Chercher le client dans client_list
+        struct client_node *curr = client_list;
+        while (curr != NULL && curr->fd != fds[i].fd) {
+            curr = curr->next;
+        }
+
+        if (curr != NULL) {
+            // Mettre à jour le pseudo
+            strncpy(curr->nick, msgstruct.infos, NICK_LEN - 1);
+            printf("Client fd %d a pris le pseudo : %s\n", curr->fd, curr->nick);
+        }
+
+        // 2. Répondre au client pour confirmer
+        char reply[MSG_LEN];
+        snprintf(reply, MSG_LEN, "[Serveur] : Welcome on the chat %s\n", msgstruct.infos);
+
+        struct message rep_struct;
+        memset(&rep_struct, 0, sizeof(struct message));
+        rep_struct.type = NICKNAME_NEW;
+        rep_struct.pld_len = strlen(reply);
+        strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+
+        if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        if (write_on_socket(fds[i].fd, reply, rep_struct.pld_len) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        return; // Fin du traitement pour /nick
+    }
+    else if (msgstruct.type == ECHO_SEND) {
+        // Sending structure (ECHO)
+        if (write_on_socket(fds[i].fd, &msgstruct, sizeof(msgstruct)) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        // Sending message (ECHO)
+        if(msgstruct.pld_len > 0){
+            if (write_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
+                disconnecte_client(fds, i);
+                return;
+            }
+        }
+        printf("Message sent!\n");
+    }
 }
 
 void echo_server(int sfd) {

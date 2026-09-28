@@ -50,6 +50,8 @@ int read_on_socket(int fd, void *ptr, int size) {
 
 void echo_client(int sockfd) {
 
+    char my_pseudo[NICK_LEN] = "";
+    char pseudo[NICK_LEN] = "";
     struct message msgstruct;
     char buff[MSG_LEN];
 	int n;
@@ -73,7 +75,6 @@ void echo_client(int sockfd) {
         memset(&msgstruct, 0, sizeof(struct message));
         memset(buff, 0, MSG_LEN);
         char commande[MSG_LEN];
-        char pseudo[NICK_LEN];
         int ret = 0;
         // Getting message from client
 
@@ -98,41 +99,55 @@ void echo_client(int sockfd) {
                 continue;
             }
 
-            msgstruct.pld_len = strlen(buff);
-            strncpy(msgstruct.nick_sender, "Toto", 5); // POURQUOI PROF 4 
-            msgstruct.type = ECHO_SEND;
-            strncpy(msgstruct.infos, "\0", 1);
-            // Sending structure
-            if (write_on_socket(sockfd, &msgstruct, sizeof(msgstruct)) <= 0) { // pas .pld_len
+            if(strcmp(buff, "/quit") == 0){
                 close(sockfd);
                 break;
             }
 
-            // Sending message (ECHO)
-            if (msgstruct.pld_len > 0){
+            // Réinitialisation de la structure et assignation du pseudo actuel
+            memset(&msgstruct, 0, sizeof(struct message));
+            strncpy(msgstruct.nick_sender, my_pseudo, NICK_LEN - 1);
+
+            // Analyse de la commande
+            ret = sscanf(buff, "%s %s", commande, pseudo);
+
+            if (ret >= 1 && strcmp(commande, "/nick") == 0) {
+                const char *autorises = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+                // Le pseudo est manquant, trop long ou contient des caractères interdits
+                if (ret < 2 || strlen(pseudo) >= NICK_LEN || strspn(pseudo, autorises) != strlen(pseudo)) {
+                    printf("Pseudo invalide. Utilisez uniquement des lettres et des chiffres.\nMessage: ");
+                    fflush(stdout);
+                    continue; // On n'envoie rien au serveur
+                }
+
+                msgstruct.type = NICKNAME_NEW;
+                strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
+                msgstruct.pld_len = 0; // Pas de payload pour NICKNAME_NEW
+            } else {
+                // Message normal (echo)
+                msgstruct.type = ECHO_SEND;
+                msgstruct.pld_len = strlen(buff);
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+            }
+
+            // Envoi de la structure
+            if (write_on_socket(sockfd, &msgstruct, sizeof(msgstruct)) <= 0) {
+                close(sockfd);
+                break;
+            }
+
+            // Envoi du payload si existant
+            if (msgstruct.pld_len > 0) {
                 if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
                     close(sockfd);
                     break;
                 }
             }
+
             printf("Message sent!\n");
             printf("Message: ");
             fflush(stdout);
-
-            if(strcmp(buff, "/quit") == 0){
-                close(sockfd);
-                break;
-            }
-            ret = sscanf(buff, "%s %s", commande, pseudo);
-            if (ret < 0){
-                close(sockfd);
-                break;
-            }
-            if(strcmp(commande, "/nick") == 0){
-                if (strlen(pseudo) < NICK_LEN){
-                strncpy(msgstruct.nick_sender, pseudo, NICK_LEN);
-                }
-            }
         }
         else if(fds[1].revents & POLLIN){
             fds[1].revents = 0;
@@ -145,12 +160,19 @@ void echo_client(int sockfd) {
                 break;
             }
             // Receiving message
-            if (read_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
-                close(sockfd);
-                break;
+            if (msgstruct.pld_len > 0) {
+                if (read_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
+                    close(sockfd);
+                    break;
+                }
             }
             printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
             printf("Received: %s", buff);
+
+            if (msgstruct.type == NICKNAME_NEW) {
+                strncpy(my_pseudo, pseudo, NICK_LEN - 1);
+            }
+
             printf("\nMessage: ");
             fflush(stdout);
 
