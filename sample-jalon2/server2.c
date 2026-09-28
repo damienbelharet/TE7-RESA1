@@ -150,32 +150,31 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
     memset(&msgstruct, 0, sizeof(struct message));
     memset(buff, 0, MSG_LEN);
     // Receiving structure
-    if (recv(fds[i].fd, &msgstruct, sizeof(struct message), 0) <= 0) {
+    if (read_on_socket(fds[i].fd, &msgstruct, sizeof(struct message)) <= 0) {
         disconnecte_client(fds, i);
         return;
     }
     // Receiving message
-    if (recv(fds[i].fd, buff, msgstruct.pld_len, 0) <= 0) {
+    if (read_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
         disconnecte_client(fds, i);
         return;
     }
-    int size = 0;
     char * mot_recu = buff;
-    mot_recu[size] = '\0';
+    mot_recu[msgstruct.pld_len] = '\0';
     if (strcmp(mot_recu, "/quit") == 0){
         disconnecte_client(fds, i);
         return;
         }
 
     printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
-    printf("Received: %s", buff);
+    printf("Received: %s\n", buff);
     // Sending structure (ECHO)
-    if (send(fds[i].fd, &msgstruct, sizeof(msgstruct), 0) <= 0) {
+    if (write_on_socket(fds[i].fd, &msgstruct, sizeof(msgstruct)) <= 0) {
         disconnecte_client(fds, i);
         return;
     }
     // Sending message (ECHO)
-    if (send(fds[i].fd, buff, msgstruct.pld_len, 0) <= 0) {
+    if (write_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
         disconnecte_client(fds, i);
         return;
     }

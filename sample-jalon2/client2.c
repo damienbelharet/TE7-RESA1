@@ -89,15 +89,14 @@ void echo_client(int sockfd) {
                 }
             }
             buff[n] = '\0';
-
             if (n == 0){
                 printf("Message: ");
                 fflush(stdout);
                 continue;
             }
 
-            msgstruct.pld_len = strlen(buff); // +1  ???????
-            strncpy(msgstruct.nick_sender, "Toto", 4);
+            msgstruct.pld_len = strlen(buff);
+            strncpy(msgstruct.nick_sender, "Toto", 5); // POURQUOI PROF 4 
             msgstruct.type = ECHO_SEND;
             strncpy(msgstruct.infos, "\0", 1);
             // Sending structure
@@ -111,6 +110,8 @@ void echo_client(int sockfd) {
                 break;
             }
             printf("Message sent!\n");
+            printf("Message: ");
+            fflush(stdout);
 
             if(strcmp(buff, "/quit") == 0){
                 close(sockfd);
@@ -134,10 +135,11 @@ void echo_client(int sockfd) {
             }
             printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
             printf("Received: %s", buff);
+            printf("\nMessage: ");
+            fflush(stdout);
+
 
         }	
-        printf("\n Message caca: ");
-        fflush(stdout);
     }   
 }
 
