@@ -176,9 +176,11 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         return;
     }
     // Sending message (ECHO)
-    if (write_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
+    if(msgstruct.pld_len > 0){
+        if (write_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
         disconnecte_client(fds, i);
         return;
+        }
     }
     printf("Message sent!\n");
 

@@ -73,7 +73,7 @@ void echo_client(int sockfd) {
         memset(&msgstruct, 0, sizeof(struct message));
         memset(buff, 0, MSG_LEN);
         char commande[MSG_LEN];
-        char *pseudo[NICK_LEN];
+        char pseudo[NICK_LEN];
         int ret = 0;
         // Getting message from client
 
@@ -123,15 +123,14 @@ void echo_client(int sockfd) {
                 close(sockfd);
                 break;
             }
-            ret = scanf(buff, "%s %s", &commande, &pseudo);
+            ret = sscanf(buff, "%s %s", commande, pseudo);
             if (ret < 0){
                 close(sockfd);
                 break;
             }
             if(strcmp(commande, "/nick") == 0){
                 if (strlen(pseudo) < NICK_LEN){
-                msgstruct.nick_sender = pseudo;
-
+                strncpy(msgstruct.nick_sender, pseudo, NICK_LEN);
                 }
             }
         }
