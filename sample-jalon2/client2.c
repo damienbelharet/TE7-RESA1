@@ -72,13 +72,15 @@ void echo_client(int sockfd) {
 
         memset(&msgstruct, 0, sizeof(struct message));
         memset(buff, 0, MSG_LEN);
+        char *commande, pseudo;
+        int ret = 0;
         // Getting message from client
 
         if (fds[0].revents & POLLIN){
             fds[0].revents = 0;
 
             n = 0;
-            int c; //int car EOF vaut -1 et char ne peut pas être -1
+            int c  = 0; //int car EOF vaut -1 et char ne peut pas être -1
             while ((c = getchar())){    //Double parenthèse à cause de Werror. C'est bizarre de faire une assignation dans un while.
                 if (c == '\n' || c == EOF){
                     break;
@@ -104,7 +106,11 @@ void echo_client(int sockfd) {
                 close(sockfd);
                 break;
             }
+
             // Sending message (ECHO)
+            if (msgstruct.pld_len == 0){
+                break;
+            }
             if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
                 close(sockfd);
                 break;
@@ -116,6 +122,13 @@ void echo_client(int sockfd) {
             if(strcmp(buff, "/quit") == 0){
                 close(sockfd);
                 break;
+            }
+            ret = sscanf(buff, "%s %s", &commande, &pseudo);
+            if(strcmp(commande, "/nick") == 0){
+                if (pseudo < NICK_LEN){
+                msgstruct.nick_sender = pseudo;
+
+                }
             }
         }
         else if(fds[1].revents & POLLIN){
