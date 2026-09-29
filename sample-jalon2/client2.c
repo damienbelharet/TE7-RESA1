@@ -75,6 +75,7 @@ void echo_client(int sockfd) {
         memset(&msgstruct, 0, sizeof(struct message));
         memset(buff, 0, MSG_LEN);
         char commande[MSG_LEN];
+        char extra[MSG_LEN];
         int ret = 0;
         // Getting message from client
 
@@ -87,7 +88,8 @@ void echo_client(int sockfd) {
                 if (c == '\n' || c == EOF){
                     break;
                 }
-                else{
+                else if (n < MSG_LEN - 1)
+                {
                     buff[n] = c;
                     n++;
                 }
@@ -104,47 +106,106 @@ void echo_client(int sockfd) {
                 break;
             }
 
-            // Réinitialisation de la structure et assignation du pseudo actuel
-            memset(&msgstruct, 0, sizeof(struct message));
-            strncpy(msgstruct.nick_sender, my_pseudo, NICK_LEN - 1);
+            memset(&msgstruct, 0, sizeof(struct message)); // on reinitialise la structure
+            strncpy(msgstruct.nick_sender, my_pseudo, NICK_LEN - 1); // assigne le pseudo actuel
 
-            // Analyse de la commande
-            ret = sscanf(buff, "%s %s", commande, pseudo);
+            ret = sscanf(buff, "%1023s %1023s %1023s", commande, pseudo, extra);
 
             if (ret >= 1 && strcmp(commande, "/nick") == 0) {
                 const char *autorises = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-                // Le pseudo est manquant, trop long ou contient des caractères interdits
-                if (ret < 2 || strlen(pseudo) >= NICK_LEN || strspn(pseudo, autorises) != strlen(pseudo)) {
+
+                if (ret < 2 || ret == 3 || strlen(pseudo) >= NICK_LEN || strspn(pseudo, autorises) != strlen(pseudo)) {
                     printf("Pseudo invalide. Utilisez uniquement des lettres et des chiffres.\nMessage: ");
                     fflush(stdout);
-                    continue; // On n'envoie rien au serveur
+                    continue;
                 }
 
                 msgstruct.type = NICKNAME_NEW;
                 strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
                 msgstruct.pld_len = 0; // Pas de payload pour NICKNAME_NEW
-            } else {
-                // Message normal (echo)
+            }
+            else if (ret >= 1 && strcmp(commande, "/who") == 0){
+                msgstruct.type = NICKNAME_LIST;
+                msgstruct.pld_len = 0;
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+            }
+            else if (ret >= 1 && strcmp(commande, "/whois") == 0){
+                msgstruct.type = NICKNAME_INFOS;
+                msgstruct.pld_len = 0;
+
+                strncpy(msgstruct.infos, pseudo, INFOS_LEN);
+            }
+            else if (ret > 1 && strcmp(commande, "/msgall") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+
+                char * message_texte = strchr(buff ,' ');  //renvoie l'adresse mémoire du premier espace dans buff
+                if (message_texte != NULL){ // strchr renvoie null si elle trouve pas le carac dans le char * donc on vérifie ici
+                    message_texte++; //possible car l'adresse mémoire pointe spécifiquement sur un char
+                }
+
+                msgstruct.type = BROADCAST_SEND;
+                msgstruct.pld_len = strlen(message_texte);
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+
+                char tmp[MSG_LEN]; // sans ça gros bug. strcpy copie les octets de gauche à droite tout en modifiant buff. Donc j'écrase avant de lire ça transforme le message
+                strncpy(tmp, message_texte, MSG_LEN - 1);
+                tmp[MSG_LEN - 1] = '\0'; // sécurité si message_texte > MSG_LEN - 1 strcnpy ne rajoute pas le \0
+                strncpy(buff, tmp, MSG_LEN - 1);
+
+            }
+            else if (ret >= 3 && strcmp(commande, "/msg") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+
+                char * space1 = strchr(buff ,' '); 
+                if (space1 != NULL){ 
+                    while(*space1 == ' '){
+                        space1++;
+                    } // si plusieurs espaces entre /msg et pseudo char
+
+                    char *space2 = strchr(space1, ' ');
+                    if(space2 != NULL){
+                        while (*space2 == ' '){
+                            space2++;
+                            }
+                        msgstruct.type = UNICAST_SEND;
+                        msgstruct.pld_len = strlen(space2); 
+                        strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
+
+                        char tmp[MSG_LEN]; 
+                        strncpy(tmp, space2, MSG_LEN - 1);
+                        tmp[MSG_LEN - 1] = '\0'; // sécurité si message_texte > MSG_LEN - 1 strcnpy ne rajoute pas le \0
+                        strncpy(buff, tmp, MSG_LEN - 1);
+                    }
+                    else{
+                        printf("/msg <pseudo> <message> \nMessage: ");
+                        fflush(stdout);
+                        continue;
+                    }
+                }
+                else{
+                    printf("/msg <pseudo> <message> \nMessage: ");
+                        fflush(stdout);
+                        continue;
+                }
+
+            }
+            else{
+                // Message normal
                 msgstruct.type = ECHO_SEND;
                 msgstruct.pld_len = strlen(buff);
                 strncpy(msgstruct.infos, "", INFOS_LEN);
             }
 
-            // Envoi de la structure
             if (write_on_socket(sockfd, &msgstruct, sizeof(msgstruct)) <= 0) {
                 close(sockfd);
                 break;
             }
 
-            // Envoi du payload si existant
             if (msgstruct.pld_len > 0) {
                 if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0) {
                     close(sockfd);
                     break;
                 }
             }
-
             printf("Message sent!\n");
             printf("Message: ");
             fflush(stdout);
@@ -170,13 +231,12 @@ void echo_client(int sockfd) {
             printf("Received: %s", buff);
 
             if (msgstruct.type == NICKNAME_NEW) {
-                strncpy(my_pseudo, pseudo, NICK_LEN - 1);
+                strncpy(my_pseudo, msgstruct.infos, NICK_LEN - 1);
+                my_pseudo[NICK_LEN -1] = '\0';
             }
 
             printf("\nMessage: ");
             fflush(stdout);
-
-
         }	
     }   
 }

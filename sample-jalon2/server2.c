@@ -156,6 +156,11 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         disconnecte_client(fds, i);
         return;
     }
+
+    if (msgstruct.pld_len > MSG_LEN){ // Bon je corrige la fuite de mémoire potentielle. Mais msgstruct.pld_len pourrait être entre MSG_LEN et PROTO_MAX_PAYLOAD
+        disconnecte_client(fds, i);
+        return;
+    }
     // Receiving message
     if (msgstruct.pld_len > 0){
         if (read_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
@@ -164,7 +169,13 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         }
     }
     char * mot_recu = buff;
-    mot_recu[msgstruct.pld_len] = '\0';
+    if (msgstruct.pld_len < MSG_LEN){
+        mot_recu[msgstruct.pld_len] = '\0'; //on évite de segault
+    }
+    else{
+        mot_recu[MSG_LEN - 1] = '\0';
+    }
+    
     if (strcmp(mot_recu, "/quit") == 0){
         disconnecte_client(fds, i);
         return;
@@ -172,21 +183,50 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
 
     printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
     printf("Received: %s\n", buff);
-
+    
     if (msgstruct.type == NICKNAME_NEW) {
-        // 1. Chercher le client dans client_list
+        struct client_node *current = client_list;
+        while (current != NULL){
+            if (strcmp(msgstruct.infos, current->nick) == 0){
+                char reply[MSG_LEN];
+                if (current->fd == fds[i].fd){
+                    snprintf(reply, MSG_LEN, "[Serveur] : error same pseudo %s\n", msgstruct.infos);
+                }
+                else{
+                    snprintf(reply, MSG_LEN, "[Serveur] : a user already has this pseudo %s\n", msgstruct.infos);
+                }
+                struct message rep_struct;
+                memset(&rep_struct, 0, sizeof(struct message));
+                rep_struct.type = NICKNAME_NEW;
+                rep_struct.pld_len = strlen(reply);
+                strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+
+                strncpy(rep_struct.infos, current->nick, INFOS_LEN - 1);
+
+                if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
+                    disconnecte_client(fds, i);
+                    return;
+                }
+                if (write_on_socket(fds[i].fd, reply, rep_struct.pld_len) <= 0) {
+                    disconnecte_client(fds, i);
+                    return;
+                }
+                return;
+            }
+            else{
+                current = current->next;
+            }
+        }
         struct client_node *curr = client_list;
         while (curr != NULL && curr->fd != fds[i].fd) {
             curr = curr->next;
         }
 
         if (curr != NULL) {
-            // Mettre à jour le pseudo
             strncpy(curr->nick, msgstruct.infos, NICK_LEN - 1);
             printf("Client fd %d a pris le pseudo : %s\n", curr->fd, curr->nick);
         }
 
-        // 2. Répondre au client pour confirmer
         char reply[MSG_LEN];
         snprintf(reply, MSG_LEN, "[Serveur] : Welcome on the chat %s\n", msgstruct.infos);
 
@@ -195,6 +235,9 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         rep_struct.type = NICKNAME_NEW;
         rep_struct.pld_len = strlen(reply);
         strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+        if (curr != NULL){ // WOW merci gdb
+            strncpy(rep_struct.infos, curr->nick, INFOS_LEN - 1);
+        }
 
         if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
             disconnecte_client(fds, i);
@@ -204,7 +247,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
             disconnecte_client(fds, i);
             return;
         }
-        return; // Fin du traitement pour /nick
+        return;
     }
     else if (msgstruct.type == ECHO_SEND) {
         // Sending structure (ECHO)
@@ -221,7 +264,125 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         }
         printf("Message sent!\n");
     }
+    else if(msgstruct.type == NICKNAME_LIST){
+        char reply[MSG_LEN];
+        snprintf(reply, MSG_LEN, "[Server] : Online users are\n");
+        struct client_node *curr = client_list;
+        while (curr != NULL){
+            if (strlen(curr->nick) > 0){ //le client a un pseudo
+                snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - %s\n", curr->nick);
+            }
+            else if (strlen(curr->nick) == 0){
+                snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - anonymous\n");
+            }
+            curr = curr->next;
+        }
+        struct message rep_struct;
+        memset(&rep_struct, 0, sizeof(struct message));
+        rep_struct.type = NICKNAME_LIST;
+        rep_struct.pld_len = strlen(reply);
+        strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+
+        if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        if (write_on_socket(fds[i].fd, reply, rep_struct.pld_len) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        return;
+
+    }
+        else if(msgstruct.type == NICKNAME_INFOS){
+        char reply[MSG_LEN];
+
+        struct client_node *curr = client_list;
+        int trouve = 0;
+        while (curr != NULL){
+            if (strcmp(curr->nick, msgstruct.infos) == 0){
+                snprintf(reply, MSG_LEN, "[Server] : %s is connected from %s %d\n", curr->nick, curr->ip, curr->port);
+                trouve = 1;
+            }
+            curr = curr->next;
+        }
+        if (trouve == 0){
+            snprintf(reply, MSG_LEN, "[Server] : %s does not exist\n", msgstruct.infos);
+        }
+        struct message rep_struct;
+        memset(&rep_struct, 0, sizeof(struct message));
+        rep_struct.type = NICKNAME_INFOS;
+        rep_struct.pld_len = strlen(reply);
+        strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+
+        if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        if (write_on_socket(fds[i].fd, reply, rep_struct.pld_len) <= 0) {
+            disconnecte_client(fds, i);
+            return;
+        }
+        return;
+
+    }
+    else if(msgstruct.type == UNICAST_SEND){
+        struct client_node *curr = client_list;
+        int find = 0;
+        while (curr != NULL){
+            if (strcmp(curr->nick, msgstruct.infos) == 0){ 
+                find = 1;
+                if (write_on_socket(curr->fd, &msgstruct, sizeof(msgstruct)) <= 0){
+                    disconnecte_client(fds, i);
+                    return;
+                }
+                if (msgstruct.pld_len > 0){
+                    if (write_on_socket(curr->fd, buff, msgstruct.pld_len) <= 0) {
+                    disconnecte_client(fds, i);
+                    return;
+                    }
+                break;
+
+                }
+            }
+            curr = curr->next;
+        }
+
+        if (find == 0){
+            char reply[MSG_LEN];
+            snprintf(reply, MSG_LEN, "[Server] : user %s does not exist\n", msgstruct.infos);
+            struct message rep_struct;
+            memset(&rep_struct, 0, sizeof(struct message));
+            rep_struct.type = UNICAST_SEND;
+            rep_struct.pld_len = strlen(reply);
+            strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
+
+            if (write_on_socket(fds[i].fd, &rep_struct, sizeof(rep_struct)) <= 0) {
+                disconnecte_client(fds, i);
+                return;
+            }
+            if (write_on_socket(fds[i].fd, reply, rep_struct.pld_len) <= 0) {
+                disconnecte_client(fds, i);
+                return;
+            }
+        return;
+        }
+    }
+    else if(msgstruct.type == BROADCAST_SEND){
+        struct client_node *curr = client_list;
+        while (curr != NULL){
+            if (curr->fd != fds[i].fd){ // on envoie pas à lui même
+                write_on_socket(curr->fd, &msgstruct, sizeof(msgstruct));
+
+                if (msgstruct.pld_len > 0){
+                    write_on_socket(curr->fd, buff, msgstruct.pld_len);
+                }
+            }
+            curr = curr->next;
+        }
+    }
 }
+
 
 void echo_server(int sfd) {
 
