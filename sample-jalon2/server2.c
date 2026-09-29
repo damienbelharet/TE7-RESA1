@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <poll.h>
+#include <time.h>
 
 #define FDS_SIZE 128
 
@@ -20,6 +21,7 @@ struct client_node {
     int port;
     char nick[NICK_LEN];
     struct client_node *next;
+    time_t time_sconnected;
 };
 struct client_node *client_list = NULL;
 
@@ -69,6 +71,7 @@ void add_client(int fd, const char *ip, int port){
     strncpy(noeud->ip, ip, INET_ADDRSTRLEN); // c'est strcpy mais on limite la taille pour pas que ça déborde dans la RAM.
     memset(noeud->nick, 0, NICK_LEN);
     noeud->next = client_list;
+    noeud->time_sconnected = time(NULL);
     client_list = noeud;
 }
 
@@ -157,10 +160,15 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         return;
     }
 
-    if (msgstruct.pld_len > MSG_LEN){ // Bon je corrige la fuite de mémoire potentielle. Mais msgstruct.pld_len pourrait être entre MSG_LEN et PROTO_MAX_PAYLOAD
+    msgstruct.infos[INFOS_LEN -1 ] = '\0';
+    msgstruct.nick_sender[NICK_LEN -1 ] = '\0';
+
+    if (msgstruct.pld_len >= MSG_LEN){ //on évite fuite de mémoire mais techniquement un payload pourrait être de taille entre MSG_LEN et PROTO_MAX_PAYLOAD.
+        printf("Erreur payload too big");
         disconnecte_client(fds, i);
         return;
     }
+
     // Receiving message
     if (msgstruct.pld_len > 0){
         if (read_on_socket(fds[i].fd, buff, msgstruct.pld_len) <= 0) {
@@ -301,7 +309,13 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         int trouve = 0;
         while (curr != NULL){
             if (strcmp(curr->nick, msgstruct.infos) == 0){
-                snprintf(reply, MSG_LEN, "[Server] : %s is connected from %s %d\n", curr->nick, curr->ip, curr->port);
+
+                struct tm *timeinfo = localtime(&curr->time_sconnected); //struct de time qui contient year mois jour etc | localtime convertit le gros nombre en sec dans la struct en prenant compte le fuseau horaire de la machine
+                char time_str[64]; // dans la struct les variables sont séparés printf complexe donc il existe strftime
+                strftime(time_str, sizeof(time_str), "%Y/%m/%d@%H:%M", timeinfo); //tableau, taille, forme, struct ou les var sont
+
+
+                snprintf(reply, MSG_LEN, "[Server] : %s is connected since %s from %s %d\n", curr->nick, time_str, curr->ip, curr->port);
                 trouve = 1;
             }
             curr = curr->next;
@@ -380,6 +394,12 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
             }
             curr = curr->next;
         }
+    }
+    else{
+        printf("Erreur: type de message inconnue de la part %d\n", fds[i].fd);
+        disconnecte_client(fds, i);
+        return;
+
     }
 }
 
