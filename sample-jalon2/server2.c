@@ -205,7 +205,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
                 }
                 struct message rep_struct;
                 memset(&rep_struct, 0, sizeof(struct message));
-                rep_struct.type = NICKNAME_NEW;
+                rep_struct.type = ECHO_SEND; // astuce pour ne pas modifier le client 
                 rep_struct.pld_len = strlen(reply);
                 strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
 
@@ -240,7 +240,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
 
         struct message rep_struct;
         memset(&rep_struct, 0, sizeof(struct message));
-        rep_struct.type = ECHO_SEND; //astuce pour ne pas modifier fichier client 
+        rep_struct.type = NICKNAME_NEW; 
         rep_struct.pld_len = strlen(reply);
         strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
         if (curr != NULL){ // WOW merci gdb
