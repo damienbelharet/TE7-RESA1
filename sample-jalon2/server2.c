@@ -302,7 +302,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         return;
 
     }
-        else if(msgstruct.type == NICKNAME_INFOS){
+        else if(msgstruct.type == NICKNAME_INFOS){ // On a pas traité le cas de anonymous.
         char reply[MSG_LEN];
 
         struct client_node *curr = client_list;

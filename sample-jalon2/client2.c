@@ -136,7 +136,7 @@ void echo_client(int sockfd) {
 
                 strncpy(msgstruct.infos, pseudo, INFOS_LEN);
             }
-            else if (ret > 1 && strcmp(commande, "/msgall") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+            else if (ret > 1 && strcmp(commande, "/mll") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
 
                 char * message_texte = strchr(buff ,' ');  //renvoie l'adresse mémoire du premier espace dans buff
                 if (message_texte != NULL){ // strchr renvoie null si elle trouve pas le carac dans le char * donc on vérifie ici
