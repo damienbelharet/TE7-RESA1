@@ -205,7 +205,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
                 }
                 struct message rep_struct;
                 memset(&rep_struct, 0, sizeof(struct message));
-                rep_struct.type = NICKNAME_NEW;
+                rep_struct.type = ECHO_SEND; // astuce pour ne pas modifier le client 
                 rep_struct.pld_len = strlen(reply);
                 strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
 
@@ -240,7 +240,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
 
         struct message rep_struct;
         memset(&rep_struct, 0, sizeof(struct message));
-        rep_struct.type = NICKNAME_NEW;
+        rep_struct.type = NICKNAME_NEW; 
         rep_struct.pld_len = strlen(reply);
         strncpy(rep_struct.nick_sender, "Server", NICK_LEN - 1);
         if (curr != NULL){ // WOW merci gdb
@@ -347,7 +347,7 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
             if (strcmp(curr->nick, msgstruct.infos) == 0){ 
                 find = 1;
                 if (write_on_socket(curr->fd, &msgstruct, sizeof(msgstruct)) <= 0){
-                    disconnecte_client(fds, i);
+                    //disconnecte_client(fds, i); on ne déconnecte pas le client alors que l'erreur ne vient pas lui. car si la socket du destinataire meurt mieux vaut juste faire un return ;                    
                     return;
                 }
                 if (msgstruct.pld_len > 0){
@@ -386,10 +386,16 @@ void handle_message(struct pollfd *fds, int i){ // ASTUCE : remplacer les contin
         struct client_node *curr = client_list;
         while (curr != NULL){
             if (curr->fd != fds[i].fd){ // on envoie pas à lui même
-                write_on_socket(curr->fd, &msgstruct, sizeof(msgstruct));
+                if (write_on_socket(curr->fd, &msgstruct, sizeof(msgstruct)) <= 0){
+                    curr = curr->next;
+                    continue;
+                }
 
                 if (msgstruct.pld_len > 0){
-                    write_on_socket(curr->fd, buff, msgstruct.pld_len);
+                    if(write_on_socket(curr->fd, buff, msgstruct.pld_len) <= 0){
+                        curr = curr->next;
+                        continue;
+                    }
                 }
             }
             curr = curr->next;
