@@ -1,13 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
+#include "msg_struct.h"
 
 #include "common.h"
+
+char* msg_type_str[] = {
+    "NICKNAME_NEW",
+    "NICKNAME_LIST",
+    "NICKNAME_INFOS",
+    "ECHO_SEND",
+    "UNICAST_SEND", 
+    "BROADCAST_SEND",
+    "MULTICAST_CREATE",
+    "MULTICAST_LIST",
+    "MULTICAST_JOIN",
+    "MULTICAST_SEND",
+    "MULTICAST_QUIT",
+    "FILE_REQUEST",
+    "FILE_ACCEPT",
+    "FILE_REJECT",
+    "FILE_SEND",
+    "FILE_ACK"
+};
 
 void die(int ret_value, char * message)
 {
     if (ret_value < 0) {
-        printf("Erreur (die) : %s", message);
+        perror(message);
         exit(EXIT_FAILURE);
     }
 }

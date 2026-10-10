@@ -17,7 +17,8 @@
 void echo_client(int sockfd) {
 
     char my_pseudo[NICK_LEN] = "";
-    char pseudo[NICK_LEN] = "";
+    char pseudo[MSG_LEN] = ""; // on passe à MSG_LEN comme ça dans le scanf si un pseudo de 200 carac est mis on ne le tronque pas et on peut ensuite afficher pseudo trop long
+    char sender[NICK_LEN] = "";
     struct message msgstruct;
     char buff[MSG_LEN];
 	int n;
@@ -42,7 +43,6 @@ void echo_client(int sockfd) {
         memset(buff, 0, MSG_LEN);
         char commande[MSG_LEN];
         char extra[MSG_LEN];
-        char sender[NICK_LEN];
         int ret = 0;
         // Getting message from client
 
@@ -103,11 +103,15 @@ void echo_client(int sockfd) {
 
                 strncpy(msgstruct.infos, pseudo, INFOS_LEN);
             }
-            else if (ret > 1 && strcmp(commande, "/mll") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+            else if (ret > 1 && strcmp(commande, "/msgall") == 0){ //on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
 
                 char * message_texte = strchr(buff ,' ');  //renvoie l'adresse mémoire du premier espace dans buff
                 if (message_texte != NULL){ // strchr renvoie null si elle trouve pas le carac dans le char * donc on vérifie ici
                     message_texte++; //possible car l'adresse mémoire pointe spécifiquement sur un char
+                }
+                if (message_texte == NULL){
+                    printf("usage : /msgall <message> ");
+                    continue;
                 }
 
                 msgstruct.type = BROADCAST_SEND;
@@ -166,16 +170,18 @@ void echo_client(int sockfd) {
                 buff[MSG_LEN - 1] = '\0';
             }
 
-            else if (ret == 1 && strcmp(commande, "N") == 0){
+            else if (ret == 1 && strcmp(commande, "N") == 0 && sender[0] != '\0'){ //sender[0] != '\0' comme ça on vérifie que c'est bien une commande et pas un simple message.
                 msgstruct.type = FILE_REJECT;
                 msgstruct.pld_len = 0;
                 strncpy(msgstruct.infos, sender, INFOS_LEN - 1);
                 msgstruct.infos[INFOS_LEN - 1] = '\0';
+                sender[0] != '\0';
             }
-            else if (ret == 1 && strcmp(commande, "Y") == 0){
+            else if (ret == 1 && strcmp(commande, "Y") == 0 && sender[0] != '\0'){
                 msgstruct.type = FILE_ACCEPT;
                 strncpy(msgstruct.infos, sender, INFOS_LEN - 1);
                 msgstruct.infos[INFOS_LEN - 1] = '\0';
+                sender[0] != '\0';
             }
             else{
                 // Message normal
