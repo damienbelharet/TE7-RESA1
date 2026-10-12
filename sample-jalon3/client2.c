@@ -48,6 +48,20 @@ int handle_connect(char *server_name, char *server_port)
     return sfd;
 }
 
+void print_man(void)
+{
+    printf("  /nick <pseudo>            choose or change your nickname\n");
+    printf("  /who                      list connected users\n");
+    printf("  /whois <pseudo>           show information about a user\n");
+    printf("  /msg <pseudo> <message>   send a private message\n");
+    printf("  /msgall <message>         send a message to everyone\n");
+    printf("  /send <pseudo> <file>     offer a file to a user\n");
+    printf("  Y / N                     accept or refuse a received file\n");
+    printf("  /man                      show this help\n");
+    printf("  /quit                     leave the chat\n");
+    printf("  any text                  echo at the server and back to you\n");
+}
+
 void echo_client(int sockfd)
 {
 
@@ -68,6 +82,7 @@ void echo_client(int sockfd)
     fds[1].events = POLLIN;
     fds[1].revents = 0;
 
+    printf("Type /man to see commands.\n");
     printf("Message: ");
     fflush(stdout);
 
@@ -135,6 +150,13 @@ void echo_client(int sockfd)
                 msgstruct.type = NICKNAME_NEW;
                 strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
                 msgstruct.pld_len = 0; // Pas de payload pour NICKNAME_NEW
+            }
+            else if (ret >= 1 && strcmp(commande, "/man") == 0)
+            {
+                print_man();
+                printf("Message: ");
+                fflush(stdout);
+                continue;
             }
             else if (ret >= 1 && strcmp(commande, "/who") == 0)
             {
