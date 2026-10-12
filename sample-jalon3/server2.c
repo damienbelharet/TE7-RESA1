@@ -47,30 +47,6 @@ void handle_new_connection(struct pollfd *fds)
     }
 }
 
-struct client_node *find_client_by_nick(const char *nick)
-{
-
-    if (nick[0] == '\0')
-    { // sinon /msg vers "" tombe sur un client anonyme
-        return NULL;
-    }
-
-    struct client_node *curr = client_list;
-    while (curr != NULL && strcmp(curr->nick, nick) != 0)
-    {
-        curr = curr->next;
-    }
-    return curr;
-}
-
-struct client_node *find_client_by_fd(const int fd){
-    struct client_node *curr = client_list;
-    while(curr != NULL && curr->fd != fd){
-        curr = curr->next;
-    }
-    return curr;
-}
-
 int send_message_to_client(int fd, struct message *msg, char *payload)
 {
 
@@ -102,7 +78,7 @@ int send_server_reply(int fd, enum msg_type type, char *text, char *info)
 }
 
 void handle_message(struct pollfd *fds, int i)
-{ 
+{
 
     struct message msgstruct;
     char buff[MSG_LEN];

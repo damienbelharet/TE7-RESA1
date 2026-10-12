@@ -6,7 +6,8 @@
 #include <time.h>
 #include "msg_struct.h" // Nécessaire pour NICK_LEN
 
-struct client_node {
+struct client_node
+{
     int fd;
     char ip[INET_ADDRSTRLEN];
     int port;
@@ -22,5 +23,7 @@ void add_client(int fd, const char *ip, int port);
 void remove_client(int fd);
 void destroy_list(void);
 void disconnecte_client(struct pollfd *fds, int index);
+struct client_node *find_client_by_nick(const char *nick);
+struct client_node *find_client_by_fd(const int fd);
 
 #endif

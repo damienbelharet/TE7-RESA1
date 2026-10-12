@@ -7,9 +7,11 @@
 
 struct client_node *client_list = NULL;
 
-void add_client(int fd, const char *ip, int port){
-    struct client_node * noeud = malloc(sizeof(struct client_node));
-    if (noeud == NULL){
+void add_client(int fd, const char *ip, int port)
+{
+    struct client_node *noeud = malloc(sizeof(struct client_node));
+    if (noeud == NULL)
+    {
         return;
     }
     noeud->fd = fd;
@@ -21,22 +23,28 @@ void add_client(int fd, const char *ip, int port){
     client_list = noeud;
 }
 
-void remove_client(int fd){
+void remove_client(int fd)
+{
     struct client_node *curr = client_list;
     struct client_node *prec = NULL;
-    
-    while(curr != NULL){
-        if (curr->fd == fd){
-            if(prec == NULL){
+
+    while (curr != NULL)
+    {
+        if (curr->fd == fd)
+        {
+            if (prec == NULL)
+            {
                 client_list = curr->next;
             }
-            else{
+            else
+            {
                 prec->next = curr->next;
             }
             free(curr);
             return;
         }
-        else{
+        else
+        {
             prec = curr;
             curr = curr->next;
         }
@@ -44,10 +52,12 @@ void remove_client(int fd){
     printf("echec de remove client\n");
 }
 
-void destroy_list(void){
+void destroy_list(void)
+{
     struct client_node *curr = client_list;
     struct client_node *next_node;
-    while(curr != NULL){
+    while (curr != NULL)
+    {
         next_node = curr->next;
         free(curr);
         curr = next_node;
@@ -55,10 +65,36 @@ void destroy_list(void){
     client_list = NULL;
 }
 
-void disconnecte_client(struct pollfd *fds, int index){
+void disconnecte_client(struct pollfd *fds, int index)
+{
     remove_client(fds[index].fd);
     close(fds[index].fd);
     fds[index].fd = -1;
     fds[index].events = 0;
     fds[index].revents = 0;
+}
+struct client_node *find_client_by_nick(const char *nick)
+{
+
+    if (nick[0] == '\0')
+    { // sinon /msg vers "" tombe sur un client anonyme
+        return NULL;
+    }
+
+    struct client_node *curr = client_list;
+    while (curr != NULL && strcmp(curr->nick, nick) != 0)
+    {
+        curr = curr->next;
+    }
+    return curr;
+}
+
+struct client_node *find_client_by_fd(const int fd)
+{
+    struct client_node *curr = client_list;
+    while (curr != NULL && curr->fd != fd)
+    {
+        curr = curr->next;
+    }
+    return curr;
 }
