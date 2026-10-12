@@ -73,7 +73,7 @@ void echo_client(int sockfd)
     struct message msgstruct;
     char buff[MSG_LEN];
     int n;
-    struct pollfd fds[2];
+    struct pollfd fds[3];
     fds[0].fd = STDIN_FILENO;
     fds[0].events = POLLIN;
     fds[0].revents = 0;
@@ -82,6 +82,10 @@ void echo_client(int sockfd)
     fds[1].events = POLLIN;
     fds[1].revents = 0;
 
+    fds[2].fd = -1; // Socket d'écoute P2P, inactif par défaut
+    fds[2].events = POLLIN;
+    fds[2].revents = 0;
+
     printf("Type /man to see commands.\n");
     printf("Message: ");
     fflush(stdout);
@@ -89,7 +93,7 @@ void echo_client(int sockfd)
     while (1)
     {
 
-        int nb_active = poll(fds, 2, -1);
+        int nb_active = poll(fds, 3, -1);
         die(nb_active, "on polling...");
 
         memset(&msgstruct, 0, sizeof(struct message));
@@ -273,6 +277,7 @@ void echo_client(int sockfd)
                     printf("Can't open a listen socket\n");
                     continue;
                 }
+                fds[2].fd = listen_fd;
                 msgstruct.type = FILE_ACCEPT;
                 strncpy(msgstruct.infos, sender, INFOS_LEN - 1);
                 snprintf(buff, MSG_LEN, "127.0.0.1:%d", port);
@@ -302,12 +307,7 @@ void echo_client(int sockfd)
                 }
             }
             printf("Message sent!\n");
-            if (listen_fd != -1)
-            {
-                receive_file(listen_fd);
-                close(listen_fd);
-                listen_fd = -1;
-            }
+
             printf("Message: ");
             fflush(stdout);
         }
@@ -393,6 +393,18 @@ void echo_client(int sockfd)
                     close(p2p_fd);
                 }
             }
+
+            printf("\nMessage: ");
+            fflush(stdout);
+        }
+        else if (fds[2].fd != -1 && (fds[2].revents & POLLIN))
+        {
+            fds[2].revents = 0;
+
+            receive_file(fds[2].fd);
+            close(fds[2].fd);
+            fds[2].fd = -1;
+            listen_fd = -1;
 
             printf("\nMessage: ");
             fflush(stdout);
