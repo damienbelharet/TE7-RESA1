@@ -1,0 +1,421 @@
+#define _POSIX_C_SOURCE 200112L
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <poll.h>
+#include <sys/stat.h> //mkdir
+
+#include "common.h"
+#include "msg_struct.h"
+#include "p2p.h"
+
+int handle_connect(char *server_name, char *server_port)
+{
+    struct addrinfo hints, *result, *rp;
+    int sfd;
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(server_name, server_port, &hints, &result) != 0)
+    {
+        perror("getaddrinfo()");
+        exit(EXIT_FAILURE);
+    }
+    for (rp = result; rp != NULL; rp = rp->ai_next)
+    {
+        sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (sfd == -1)
+        {
+            continue;
+        }
+        if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+        {
+            break;
+        }
+        close(sfd);
+    }
+    if (rp == NULL)
+    {
+        fprintf(stderr, "Could not connect\n");
+        exit(EXIT_FAILURE);
+    }
+    freeaddrinfo(result);
+    return sfd;
+}
+
+void print_man(void)
+{
+    printf("  /nick <pseudo>            choose or change your nickname\n");
+    printf("  /who                      list connected users\n");
+    printf("  /whois <pseudo>           show information about a user\n");
+    printf("  /msg <pseudo> <message>   send a private message\n");
+    printf("  /msgall <message>         send a message to everyone\n");
+    printf("  /send <pseudo> <file>     offer a file to a user\n");
+    printf("  Y / N                     accept or refuse a received file\n");
+    printf("  /man                      show this help\n");
+    printf("  /quit                     leave the chat\n");
+    printf("  any text                  echo at the server and back to you\n");
+}
+
+void echo_client(int sockfd)
+{
+
+    char my_pseudo[NICK_LEN] = "";
+    char pseudo[MSG_LEN] = ""; // on passe à MSG_LEN comme ça dans le scanf si un pseudo de 200 carac est mis on ne le tronque pas et on peut ensuite afficher pseudo trop long
+    char sender[NICK_LEN] = "";
+    char file_path[MSG_LEN] = "";
+    int listen_fd = -1;
+    struct message msgstruct;
+    char buff[MSG_LEN];
+    int n;
+    struct pollfd fds[2];
+    fds[0].fd = STDIN_FILENO;
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
+
+    fds[1].fd = sockfd;
+    fds[1].events = POLLIN;
+    fds[1].revents = 0;
+
+    printf("Type /man to see commands.\n");
+    printf("Message: ");
+    fflush(stdout);
+
+    while (1)
+    {
+
+        int nb_active = poll(fds, 2, -1);
+        die(nb_active, "on polling...");
+
+        memset(&msgstruct, 0, sizeof(struct message));
+        memset(buff, 0, MSG_LEN);
+        char commande[MSG_LEN];
+        char extra[MSG_LEN];
+        int ret = 0;
+        // Getting message from client
+
+        if (fds[0].revents & POLLIN)
+        {
+            fds[0].revents = 0;
+
+            n = 0;
+            int c = 0; // int car EOF vaut -1 et char ne peut pas être -1
+            while ((c = getchar()))
+            { // Double parenthèse à cause de Werror. C'est bizarre de faire une assignation dans un while.
+                if (c == '\n' || c == EOF)
+                {
+                    break;
+                }
+                else if (n < MSG_LEN - 1)
+                {
+                    buff[n] = c;
+                    n++;
+                }
+            }
+            buff[n] = '\0';
+            if (n == 0)
+            {
+                printf("Message: ");
+                fflush(stdout);
+                continue;
+            }
+
+            if (strcmp(buff, "/quit") == 0)
+            {
+                close(sockfd);
+                break;
+            }
+
+            memset(&msgstruct, 0, sizeof(struct message));           // on reinitialise la structure
+            strncpy(msgstruct.nick_sender, my_pseudo, NICK_LEN - 1); // assigne le pseudo actuel
+
+            ret = sscanf(buff, "%1023s %1023s %1023s", commande, pseudo, extra);
+
+            if (ret >= 1 && strcmp(commande, "/nick") == 0)
+            {
+                const char *autorises = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+                if (ret < 2 || ret == 3 || strlen(pseudo) >= NICK_LEN || strspn(pseudo, autorises) != strlen(pseudo))
+                {
+                    printf("Pseudo invalide. Utilisez uniquement des lettres et des chiffres.\nMessage: ");
+                    fflush(stdout);
+                    continue;
+                }
+
+                msgstruct.type = NICKNAME_NEW;
+                strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
+                msgstruct.pld_len = 0; // Pas de payload pour NICKNAME_NEW
+            }
+            else if (ret >= 1 && strcmp(commande, "/man") == 0)
+            {
+                print_man();
+                printf("Message: ");
+                fflush(stdout);
+                continue;
+            }
+            else if (ret >= 1 && strcmp(commande, "/who") == 0)
+            {
+                msgstruct.type = NICKNAME_LIST;
+                msgstruct.pld_len = 0;
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+            }
+            else if (ret >= 1 && strcmp(commande, "/whois") == 0)
+            {
+                msgstruct.type = NICKNAME_INFOS;
+                msgstruct.pld_len = 0;
+
+                strncpy(msgstruct.infos, pseudo, INFOS_LEN);
+            }
+            else if (ret > 1 && strcmp(commande, "/msgall") == 0)
+            { // on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+
+                char *message_texte = strchr(buff, ' '); // renvoie l'adresse mémoire du premier espace dans buff
+                if (message_texte != NULL)
+                {                    // strchr renvoie null si elle trouve pas le carac dans le char * donc on vérifie ici
+                    message_texte++; // possible car l'adresse mémoire pointe spécifiquement sur un char
+                }
+                if (message_texte == NULL)
+                {
+                    printf("usage : /msgall <message> ");
+                    continue;
+                }
+
+                msgstruct.type = BROADCAST_SEND;
+                msgstruct.pld_len = strlen(message_texte);
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+
+                char tmp[MSG_LEN]; // sans ça gros bug. strcpy copie les octets de gauche à droite tout en modifiant buff. Donc j'écrase avant de lire ça transforme le message
+                strncpy(tmp, message_texte, MSG_LEN - 1);
+                tmp[MSG_LEN - 1] = '\0'; // sécurité si message_texte > MSG_LEN - 1 strcnpy ne rajoute pas le \0
+                strncpy(buff, tmp, MSG_LEN - 1);
+            }
+            else if (ret >= 3 && strcmp(commande, "/msg") == 0)
+            { // on peut pas faire comme /who car le message peut être une phrase respecte pas sscanf
+
+                char *space1 = strchr(buff, ' ');
+                if (space1 != NULL)
+                {
+                    while (*space1 == ' ')
+                    {
+                        space1++;
+                    } // si plusieurs espaces entre /msg et pseudo char
+
+                    char *space2 = strchr(space1, ' ');
+                    if (space2 != NULL)
+                    {
+                        while (*space2 == ' ')
+                        {
+                            space2++;
+                        }
+                        msgstruct.type = UNICAST_SEND;
+                        msgstruct.pld_len = strlen(space2);
+                        strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
+
+                        char tmp[MSG_LEN];
+                        strncpy(tmp, space2, MSG_LEN - 1);
+                        tmp[MSG_LEN - 1] = '\0'; // sécurité si message_texte > MSG_LEN - 1 strcnpy ne rajoute pas le \0
+                        strncpy(buff, tmp, MSG_LEN - 1);
+                    }
+                    else
+                    {
+                        printf("/msg <pseudo> <message> \nMessage: ");
+                        fflush(stdout);
+                        continue;
+                    }
+                }
+                else
+                {
+                    printf("/msg <pseudo> <message> \nMessage: ");
+                    fflush(stdout);
+                    continue;
+                }
+            }
+            else if (ret >= 3 && strcmp(commande, "/send") == 0)
+            {
+
+                if (my_pseudo[0] == '\0')
+                {
+                    printf("Choose a nickname before sending\nMessage: ");
+                    fflush(stdout);
+                    continue;
+                }
+                msgstruct.type = FILE_REQUEST;
+
+                strncpy(file_path, extra, MSG_LEN - 1);
+
+                strncpy(msgstruct.infos, pseudo, INFOS_LEN - 1);
+                msgstruct.infos[INFOS_LEN - 1] = '\0';
+
+                msgstruct.pld_len = strlen(extra);
+                strncpy(buff, extra, MSG_LEN - 1);
+                buff[MSG_LEN - 1] = '\0';
+            }
+
+            else if (ret == 1 && strcmp(commande, "N") == 0 && sender[0] != '\0')
+            { // sender[0] != '\0' comme ça on vérifie que c'est bien une commande et pas un simple message.
+                msgstruct.type = FILE_REJECT;
+                msgstruct.pld_len = 0;
+                strncpy(msgstruct.infos, sender, INFOS_LEN - 1);
+                msgstruct.infos[INFOS_LEN - 1] = '\0';
+                sender[0] = '\0';
+            }
+            else if (ret == 1 && strcmp(commande, "Y") == 0 && sender[0] != '\0')
+            {
+                int port;
+                listen_fd = create_listen_sock(&port);
+                if (listen_fd == -1)
+                {
+                    printf("Can't open a listen socket\n");
+                    continue;
+                }
+                msgstruct.type = FILE_ACCEPT;
+                strncpy(msgstruct.infos, sender, INFOS_LEN - 1);
+                snprintf(buff, MSG_LEN, "127.0.0.1:%d", port);
+                msgstruct.pld_len = strlen(buff);
+                sender[0] = '\0';
+            }
+            else
+            {
+                // Message normal
+                msgstruct.type = ECHO_SEND;
+                msgstruct.pld_len = strlen(buff);
+                strncpy(msgstruct.infos, "", INFOS_LEN);
+            }
+
+            if (write_on_socket(sockfd, &msgstruct, sizeof(msgstruct)) <= 0)
+            {
+                close(sockfd);
+                break;
+            }
+
+            if (msgstruct.pld_len > 0)
+            {
+                if (write_on_socket(sockfd, buff, msgstruct.pld_len) <= 0)
+                {
+                    close(sockfd);
+                    break;
+                }
+            }
+            printf("Message sent!\n");
+            if (listen_fd != -1)
+            {
+                receive_file(listen_fd);
+                close(listen_fd);
+                listen_fd = -1;
+            }
+            printf("Message: ");
+            fflush(stdout);
+        }
+        else if (fds[1].revents & POLLIN)
+        {
+            fds[1].revents = 0;
+
+            memset(&msgstruct, 0, sizeof(struct message));
+            memset(buff, 0, MSG_LEN);
+            // Receiving structure
+            if (read_on_socket(sockfd, &msgstruct, sizeof(struct message)) <= 0)
+            {
+                close(sockfd);
+                break;
+            }
+            // Receiving message
+            if (msgstruct.pld_len > 0)
+            {
+                if (read_on_socket(sockfd, buff, msgstruct.pld_len) <= 0)
+                {
+                    close(sockfd);
+                    break;
+                }
+            }
+            printf("pld_len: %i / nick_sender: %s / type: %s / infos: %s\n", msgstruct.pld_len, msgstruct.nick_sender, msg_type_str[msgstruct.type], msgstruct.infos);
+            printf("Received: %s\n", buff);
+
+            if (msgstruct.type == NICKNAME_NEW)
+            {
+                strncpy(my_pseudo, msgstruct.infos, NICK_LEN - 1);
+                my_pseudo[NICK_LEN - 1] = '\0';
+            }
+
+            else if (msgstruct.type == FILE_REQUEST)
+            {
+                if (msgstruct.nick_sender[0] != '\0')
+                {
+                    fprintf(stdout, "\n%s wants you to accept the transfer of the file named %s. Do you accept? [Y/N]", msgstruct.nick_sender, buff);
+                }
+                else
+                {
+                    fprintf(stdout, "\nAnonymous wants you to accept the transfer of the file named %s. Do you accept? [Y/N]", buff);
+                }
+                strncpy(sender, msgstruct.nick_sender, NICK_LEN - 1);
+                sender[NICK_LEN - 1] = '\0';
+            }
+            else if (msgstruct.type == FILE_REJECT)
+            {
+                fprintf(stdout, "Oops %s rejects your request :( \n", msgstruct.nick_sender);
+            }
+            else if (msgstruct.type == FILE_ACCEPT)
+            {
+                printf("%s accepted file transfer. \n", msgstruct.nick_sender);
+
+                char *deux_points = strchr(buff, ':');
+                if (deux_points == NULL)
+                {
+                    printf("problem with the file accepting");
+                }
+                else
+                {
+                    *deux_points = '\0';
+                    char *ip = buff;
+                    char *port = deux_points + 1;
+                    printf("Connecting to %s and sending the file\n", msgstruct.nick_sender);
+                    int p2p_fd = handle_connect(ip, port);
+
+                    if (send_file(p2p_fd, file_path, my_pseudo) == 0)
+                    {
+                        printf("File sent, waiting for an answer...\n");
+
+                        struct message ack;
+                        memset(&ack, 0, sizeof(ack));
+                        if (read_on_socket(p2p_fd, &ack, sizeof(ack)) > 0 && ack.type == FILE_ACK)
+                        {
+                            printf("%s has received the file\n", msgstruct.nick_sender);
+                        }
+                        else
+                        {
+                            printf("No confirmation received\n");
+                        }
+                    }
+                    close(p2p_fd);
+                }
+            }
+
+            printf("\nMessage: ");
+            fflush(stdout);
+        }
+    }
+}
+
+int main(int argc, char *argv[])
+{
+
+    if (argc < 3)
+    {
+        fprintf(stdout, "Error not enough arguments. Use :\n ./client2.c <server.name> <server.port> \n<");
+        exit(EXIT_FAILURE);
+    }
+    if (argc > 3)
+    {
+        fprintf(stdout, "Error to many arguments. Use :\n ./client2.c <server.name> <server.port> \n<");
+        exit(EXIT_FAILURE);
+    }
+    int sfd;
+    sfd = handle_connect(argv[1], argv[2]);
+    echo_client(sfd);
+    close(sfd);
+    return EXIT_SUCCESS;
+}
