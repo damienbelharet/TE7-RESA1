@@ -16,6 +16,155 @@
 #include "msg_struct.h"
 #include "user-utils.h"
 
+int send_message_to_client(int fd, struct message *msg, char *payload)
+{
+
+    if (write_on_socket(fd, msg, sizeof(struct message)) <= 0)
+    {
+        return -1;
+    }
+    if (msg->pld_len > 0 && payload != NULL)
+    {
+        if (write_on_socket(fd, payload, msg->pld_len) <= 0)
+        {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int send_server_reply(int fd, enum msg_type type, char *text, char *info)
+{
+    struct message server_reply;
+    memset(&server_reply, 0, sizeof(struct message));
+    strcpy(server_reply.nick_sender, "Server");
+    server_reply.type = type;
+    server_reply.pld_len = strlen(text);
+    strncpy(server_reply.infos, info, INFOS_LEN - 1);
+
+    int ret_value = send_message_to_client(fd, &server_reply, text);
+    return ret_value;
+}
+
+void nickname_new(struct pollfd *fds, int i, struct message *msg)
+{
+
+    struct client_node *exist = find_client_by_nick(msg->infos);
+    char reply[MSG_LEN];
+    if (exist != NULL)
+    {
+        if (exist->fd == fds[i].fd)
+        {
+            snprintf(reply, MSG_LEN, "[Serveur] : error same pseudo %s\n", msg->infos);
+        }
+        else
+        {
+            snprintf(reply, MSG_LEN, "[Serveur] : a user already has this pseudo %s\n", msg->infos);
+        }
+        if (send_server_reply(fds[i].fd, ECHO_SEND, reply, exist->nick) < 0)
+        {
+            disconnecte_client(fds, i);
+        }
+        return;
+    }
+
+    struct client_node *dest = find_client_by_fd(fds[i].fd);
+    if (dest == NULL)
+    { // WOW merci gdb
+        printf("Erreur : client fd %d introuvable\n", fds[i].fd);
+        return;
+    }
+    strncpy(dest->nick, msg->infos, NICK_LEN - 1);
+    printf("Client fd %d a pris le pseudo : %s\n", dest->fd, dest->nick);
+
+    snprintf(reply, MSG_LEN, "[Serveur] : Welcome on the chat %s\n", msg->infos);
+
+    if (send_server_reply(fds[i].fd, NICKNAME_NEW, reply, dest->nick) < 0)
+    {
+        disconnecte_client(fds, i);
+    }
+}
+
+void nickname_list(struct pollfd *fds, int i)
+{
+    char reply[MSG_LEN];
+    snprintf(reply, MSG_LEN, "[Server] : Online users are\n");
+    struct client_node *curr = client_list;
+    while (curr != NULL)
+    {
+        if (strlen(curr->nick) > 0)
+        { // le client a un pseudo
+            snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - %s\n", curr->nick);
+        }
+        else
+        {
+            snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - anonymous\n");
+        }
+        curr = curr->next;
+    }
+
+    if (send_server_reply(fds[i].fd, NICKNAME_LIST, reply, "") < 0)
+    {
+        disconnecte_client(fds, i);
+    }
+}
+
+void nickname_infos(struct pollfd *fds, int i, struct message *msg)
+{
+    char reply[MSG_LEN];
+    struct client_node *dest = find_client_by_nick(msg->infos);
+    if (dest == NULL)
+    {
+        snprintf(reply, MSG_LEN, "[Server] : %s does not exist\n", msg->infos);
+    }
+    else
+    {
+        struct tm *timeinfo = localtime(&dest->time_sconnected);          // struct de time qui contient year mois jour etc | localtime convertit le gros nombre en sec dans la struct en prenant compte le fuseau horaire de la machine
+        char time_str[64];                                                // dans la struct les variables sont séparés printf complexe donc il existe strftime
+        strftime(time_str, sizeof(time_str), "%Y/%m/%d@%H:%M", timeinfo); // tableau, taille, forme, struct ou les var sont
+
+        snprintf(reply, MSG_LEN, "[Server] : %s is connected since %s from %s %d\n", dest->nick, time_str, dest->ip, dest->port);
+    }
+    if (send_server_reply(fds[i].fd, NICKNAME_INFOS, reply, "") < 0)
+    {
+        disconnecte_client(fds, i);
+    }
+}
+
+void forward_message(int fd, struct message *msg, char *buff)
+{
+    struct client_node *dest = find_client_by_nick(msg->infos);
+    if (dest == NULL)
+    {
+        char reply[MSG_LEN];
+        snprintf(reply, MSG_LEN, "[Server] : user %s does not exist\n", msg->infos);
+
+        if (send_server_reply(fd, UNICAST_SEND, reply, "") < 0)
+        {
+            printf("Destinataire doesn't respond\n");
+        }
+        return;
+    }
+    if (send_message_to_client(dest->fd, msg, buff) < 0)
+    {
+        printf("Destinataire doesn't respond\n");
+    }
+    return;
+}
+
+void broadcast_send(int fd_send, struct message *msg, char *buff)
+{
+    struct client_node *curr = client_list;
+    while (curr != NULL)
+    {
+        if (curr->fd != fd_send)
+        { // on envoie pas à lui même
+            send_message_to_client(curr->fd, msg, buff);
+        }
+        curr = curr->next;
+    }
+}
+
 void handle_new_connection(struct pollfd *fds)
 {
     struct sockaddr_in client_addr; // on crée la boite vide
@@ -45,36 +194,6 @@ void handle_new_connection(struct pollfd *fds)
         printf("Serveur plein erreur\n");
         close(client_fd);
     }
-}
-
-int send_message_to_client(int fd, struct message *msg, char *payload)
-{
-
-    if (write_on_socket(fd, msg, sizeof(struct message)) <= 0)
-    {
-        return -1;
-    }
-    if (msg->pld_len > 0 && payload != NULL)
-    {
-        if (write_on_socket(fd, payload, msg->pld_len) <= 0)
-        {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-int send_server_reply(int fd, enum msg_type type, char *text, char *info)
-{
-    struct message server_reply;
-    memset(&server_reply, 0, sizeof(struct message));
-    strcpy(server_reply.nick_sender, "Server");
-    server_reply.type = type;
-    server_reply.pld_len = strlen(text);
-    strncpy(server_reply.infos, info, INFOS_LEN - 1);
-
-    int ret_value = send_message_to_client(fd, &server_reply, text);
-    return ret_value;
 }
 
 void handle_message(struct pollfd *fds, int i)
@@ -133,41 +252,8 @@ void handle_message(struct pollfd *fds, int i)
     {
     case NICKNAME_NEW:
     {
-        struct client_node *exist = find_client_by_nick(msgstruct.infos);
-        char reply[MSG_LEN];
-        if (exist != NULL)
-        {
-            if (exist->fd == fds[i].fd)
-            {
-                snprintf(reply, MSG_LEN, "[Serveur] : error same pseudo %s\n", msgstruct.infos);
-            }
-            else
-            {
-                snprintf(reply, MSG_LEN, "[Serveur] : a user already has this pseudo %s\n", msgstruct.infos);
-            }
-            if (send_server_reply(fds[i].fd, ECHO_SEND, reply, exist->nick) < 0)
-            {
-                disconnecte_client(fds, i);
-            }
-            return;
-        }
-
-        struct client_node *dest = find_client_by_fd(fds[i].fd);
-        if (dest == NULL)
-        { // WOW merci gdb
-            printf("Erreur : client fd %d introuvable\n", fds[i].fd);
-            return;
-        }
-        strncpy(dest->nick, msgstruct.infos, NICK_LEN - 1);
-        printf("Client fd %d a pris le pseudo : %s\n", dest->fd, dest->nick);
-
-        snprintf(reply, MSG_LEN, "[Serveur] : Welcome on the chat %s\n", msgstruct.infos);
-
-        if (send_server_reply(fds[i].fd, NICKNAME_NEW, reply, dest->nick) < 0)
-        {
-            disconnecte_client(fds, i);
-        }
-        return;
+        nickname_new(fds, i, &msgstruct);
+        break;
     }
 
     case ECHO_SEND:
@@ -180,53 +266,16 @@ void handle_message(struct pollfd *fds, int i)
         printf("Message sent!\n");
         break;
     }
-
     case NICKNAME_LIST:
     {
-        char reply[MSG_LEN];
-        snprintf(reply, MSG_LEN, "[Server] : Online users are\n");
-        struct client_node *curr = client_list;
-        while (curr != NULL)
-        {
-            if (strlen(curr->nick) > 0)
-            { // le client a un pseudo
-                snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - %s\n", curr->nick);
-            }
-            else
-            {
-                snprintf(reply + strlen(reply), MSG_LEN - strlen(reply), "        - anonymous\n");
-            }
-            curr = curr->next;
-        }
-
-        if (send_server_reply(fds[i].fd, NICKNAME_LIST, reply, "") < 0)
-        {
-            disconnecte_client(fds, i);
-        }
-        return;
+        nickname_list(fds, i);
+        break;
     }
 
     case NICKNAME_INFOS:
     {
-        char reply[MSG_LEN];
-        struct client_node *dest = find_client_by_nick(msgstruct.infos);
-        if (dest == NULL)
-        {
-            snprintf(reply, MSG_LEN, "[Server] : %s does not exist\n", msgstruct.infos);
-        }
-        else
-        {
-            struct tm *timeinfo = localtime(&dest->time_sconnected);          // struct de time qui contient year mois jour etc | localtime convertit le gros nombre en sec dans la struct en prenant compte le fuseau horaire de la machine
-            char time_str[64];                                                // dans la struct les variables sont séparés printf complexe donc il existe strftime
-            strftime(time_str, sizeof(time_str), "%Y/%m/%d@%H:%M", timeinfo); // tableau, taille, forme, struct ou les var sont
-
-            snprintf(reply, MSG_LEN, "[Server] : %s is connected since %s from %s %d\n", dest->nick, time_str, dest->ip, dest->port);
-        }
-        if (send_server_reply(fds[i].fd, NICKNAME_INFOS, reply, "") < 0)
-        {
-            disconnecte_client(fds, i);
-        }
-        return;
+        nickname_infos(fds, i, &msgstruct);
+        break;
     }
 
     case UNICAST_SEND:
@@ -234,36 +283,13 @@ void handle_message(struct pollfd *fds, int i)
     case FILE_REJECT:
     case FILE_ACCEPT:
     {
-        struct client_node *dest = find_client_by_nick(msgstruct.infos);
-        if (dest == NULL)
-        {
-            char reply[MSG_LEN];
-            snprintf(reply, MSG_LEN, "[Server] : user %s does not exist\n", msgstruct.infos);
-
-            if (send_server_reply(fds[i].fd, UNICAST_SEND, reply, "") < 0)
-            {
-                printf("Destinataire doesn't respond\n");
-            }
-            return;
-        }
-        if (send_message_to_client(dest->fd, &msgstruct, buff) < 0)
-        {
-            printf("Destinataire doesn't respond\n");
-        }
-        return;
+        forward_message(fds[i].fd, &msgstruct, buff);
+        break;
     }
 
     case BROADCAST_SEND:
     {
-        struct client_node *curr = client_list;
-        while (curr != NULL)
-        {
-            if (curr->fd != fds[i].fd)
-            { // on envoie pas à lui même
-                send_message_to_client(curr->fd, &msgstruct, buff);
-            }
-            curr = curr->next;
-        }
+        broadcast_send(fds[i].fd, &msgstruct, buff);
         break;
     }
 
